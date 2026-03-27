@@ -62,7 +62,7 @@ flash_partition() {
 }
 
 # Slot A firmware partitions (flashable with slot suffix)
-SLOT_A_PARTS="xbl_a xbl_config_a rpm_a tz_a hyp_a modem_a bluetooth_a mdtpsecapp_a mdtp_a abl_a dsp_a keymaster_a boot_a cmnlib_a cmnlib64_a devcfg_a qupfw_a vbmeta_a dtbo_a imagefv_a uefisecapp_a recovery_a vbmeta_system_a"
+SLOT_A_PARTS="xbl_b xbl_config_b rpm_b tz_b hyp_b modem_b bluetooth_b mdtpsecapp_b mdtp_b abl_b dsp_b keymaster_b boot_b cmnlib_b cmnlib64_b devcfg_b qupfw_b vbmeta_b dtbo_b imagefv_b uefisecapp_b recovery_b vbmeta_system_b"
 
 # Critical non-slotted partitions
 NONSLOT_CRITICAL="persist modemst1 modemst2 fsg fsc misc keystore super metadata splash devinfo dip apdp ssd nvdata1 nvdata2 teedata cdt ddr secdata uefivarstore storsec multiimgoem multiimgqti spunvm"
