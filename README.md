@@ -1,14 +1,14 @@
 # HiBy M300 Full Backup & Restore
 
-Full partition-level backup of a working HiBy Digital M300 (QCM6125W/Trinket) running firmware v1.60 (20241130-1654) with Magisk root.
+Full partition-level backup of a working HiBy Digital M300 (QCM6125W/Trinket) running firmware v1.60+ (OTA build `eng.HiBy.20250418.122933`) with Magisk 30.7 root.
 
 ## Device Info
 
 - **SoC**: Qualcomm QCM6125W (Trinket) - `nicobar_IoT_modem`
 - **Storage**: UFS (4096-byte logical blocks)
 - **Slot**: A/B with UEFI bootloader
-- **Android**: Stock HiBy firmware v1.60
-- **Root**: Magisk (patched boot_a)
+- **Android**: Stock HiBy firmware v1.60+ (OTA build 20250418)
+- **Root**: Magisk v30.7 (patched boot_b)
 - **Serial HWID**: `0x001750e1`
 
 ## The Problem (and how we fixed it)
@@ -126,14 +126,45 @@ Replace `modem_b` with `modem_a` if you're on slot A.
 
 ### OTA + Magisk Workflow
 
-OTA updates also fail if boot is Magisk-patched (hash mismatch on delta update). The full workflow for applying an OTA on this device:
+**OTA updates will NOT work out of the box** if your boot image is Magisk-patched. The update_engine uses delta/incremental updates that read specific blocks from the current boot partition and apply binary diffs. Since Magisk modifies the boot image, the source block hashes won't match and the update aborts immediately with:
 
-1. **Restore stock boot** (no reboot needed): `adb shell su -c "dd if=/data/local/tmp/stock_boot.img of=/dev/block/by-name/boot_a bs=4096"`
-2. **Reset update engine**: `adb shell su -c "update_engine_client --reset_status"`
-3. **Apply OTA** via system settings or `update_engine_client --update --payload=file:///data/ota_package/update.zip --offset=OFFSET --size=SIZE --headers=HEADERS --follow`
-4. **Patch new boot with Magisk**: dump new boot from inactive slot, patch via Magisk app, flash back via fastbootd
-5. **Fix modem 4K sectors** (see above)
-6. **Reboot**
+```
+ERROR: The hash of the source data on disk for this operation doesn't match the expected value.
+ERROR: Failed to perform BROTLI_BSDIFF operation 0 in partition "boot"
+```
+
+You **must** restore the stock boot image before applying any OTA. This can be done live without rebooting:
+
+```bash
+# 1. Keep a copy of the stock boot image (from the firmware package or dump before patching)
+# 2. Write stock boot to the active slot (no reboot needed)
+adb shell su -c "dd if=/sdcard/stock_boot.img of=/dev/block/by-name/boot_b bs=4096 && sync"
+
+# 3. Reset the update engine (clears previous failure state)
+adb shell su -c "update_engine_client --reset_status"
+
+# 4. Apply OTA - either tap "Install" in system settings, or via CLI:
+#    First extract payload offset from the OTA zip metadata, then:
+adb shell su -c "update_engine_client \
+  --update \
+  --payload=file:///data/ota_package/update.zip \
+  --offset=OFFSET --size=SIZE \
+  --headers='FILE_HASH=...\nFILE_SIZE=...\nMETADATA_HASH=...\nMETADATA_SIZE=...' \
+  --follow"
+
+# 5. OTA writes to the INACTIVE slot. Dump the new boot and patch with Magisk:
+adb shell su -c "dd if=/dev/block/by-name/boot_a of=/sdcard/boot_new.img bs=4096"
+#    Open Magisk app > Install > Select and Patch a File > pick boot_new.img
+#    Then flash the patched image back:
+adb shell su -c "dd if=/sdcard/Download/magisk_patched-XXXXX.img of=/dev/block/by-name/boot_a bs=4096 && sync"
+
+# 6. Fix modem 4K sectors on the new slot (see above)
+
+# 7. Reboot into the updated firmware
+adb reboot
+```
+
+**Important**: Always keep a copy of the stock (unpatched) boot image for your current firmware version. Without it, you cannot apply OTA updates.
 
 ## How to Restore
 
