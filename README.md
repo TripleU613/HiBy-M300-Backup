@@ -86,6 +86,55 @@ The device identifies as `nicobar_IoT_modem` (HWID `0x001750e1`) in EDL mode. A 
 
 **NOT included**: `userdata` (110GB, user data), `rawdump`, `logdump`
 
+## After Every OTA Update
+
+OTA updates will **break WiFi and Bluetooth every time**. The update_engine writes a stock `modem_b` (or `modem_a`) image with 512-byte FAT16 sectors, which the UFS kernel driver refuses to mount. You must rebuild the modem image with 4K sectors after every OTA.
+
+### Symptoms After OTA
+
+- WiFi toggle does nothing, no `wlan0` interface appears
+- Bluetooth stays OFF
+- `dmesg` shows: `servloc: pd_locator_work: Failed to get process domains for wlan/fw`
+- `/vendor/firmware_mnt/` is empty (modem partition failed to mount)
+
+### Fix (requires root)
+
+```bash
+# 1. Dump the new modem partition (check which slot is active first)
+adb shell su -c "getprop ro.boot.slot_suffix"   # returns _a or _b
+adb shell su -c "dd if=/dev/block/by-name/modem_b of=/sdcard/modem_raw.img bs=4096"
+adb pull /sdcard/modem_raw.img /tmp/modem_raw.img
+
+# 2. Extract files from 512-byte sector image
+mkdir -p /tmp/modem_extract
+7z x -o/tmp/modem_extract /tmp/modem_raw.img -y
+
+# 3. Rebuild with 4096-byte sectors
+dd if=/dev/zero of=/tmp/modem_4k.img bs=4096 count=46080
+mkfs.vfat -F 16 -S 4096 -s 1 /tmp/modem_4k.img
+mmd -i /tmp/modem_4k.img ::image ::verinfo
+mcopy -i /tmp/modem_4k.img /tmp/modem_extract/image/* ::image/
+mcopy -i /tmp/modem_4k.img /tmp/modem_extract/verinfo/* ::verinfo/
+
+# 4. Flash back and reboot
+adb push /tmp/modem_4k.img /sdcard/modem_4k.img
+adb shell su -c "dd if=/sdcard/modem_4k.img of=/dev/block/by-name/modem_b bs=4096 && sync"
+adb reboot
+```
+
+Replace `modem_b` with `modem_a` if you're on slot A.
+
+### OTA + Magisk Workflow
+
+OTA updates also fail if boot is Magisk-patched (hash mismatch on delta update). The full workflow for applying an OTA on this device:
+
+1. **Restore stock boot** (no reboot needed): `adb shell su -c "dd if=/data/local/tmp/stock_boot.img of=/dev/block/by-name/boot_a bs=4096"`
+2. **Reset update engine**: `adb shell su -c "update_engine_client --reset_status"`
+3. **Apply OTA** via system settings or `update_engine_client --update --payload=file:///data/ota_package/update.zip --offset=OFFSET --size=SIZE --headers=HEADERS --follow`
+4. **Patch new boot with Magisk**: dump new boot from inactive slot, patch via Magisk app, flash back via fastbootd
+5. **Fix modem 4K sectors** (see above)
+6. **Reboot**
+
 ## How to Restore
 
 ### Prerequisites
